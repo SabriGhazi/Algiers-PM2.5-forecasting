@@ -281,3 +281,30 @@ DTC = DecisionTreeRegressor(max_depth=120,criterion="mae")
 DTC.fit(X_train, y_train)
 y_pred=DTC.predict(X_val)
 print(rmse(y_val, y_pred))
+#%%
+from statsmodels.graphics.tsaplots import plot_acf
+from statsmodels.graphics.tsaplots import plot_pacf
+#%%
+plot_acf(df.PM25_t,lags=[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36])
+plt.figsize=(6, 4)
+plt.xlabel('lags in days')
+plt.ylabel('correlation')
+plt.title('Autocorrelation of PM2.5 in Algiers')
+plt.show()
+#%%
+import statsmodels.api as sm
+#%%
+gdp_cycle, gdp_trend = sm.tsa. filters.hpfilter(df.PM25_t)
+#%%
+gdp_decomp = df[['PM25_t']].copy()
+gdp_decomp["cycle"] = gdp_cycle
+gdp_decomp["trend"] = gdp_trend
+#%%
+fig = plt.figure(figsize=(12,8))
+ax = fig.add_subplot(111)
+gdp_decomp[["trend"]].plot(ax=ax, fontsize=16);
+legend = ax.get_legend()
+legend.prop.set_size(20);
+
+
+
