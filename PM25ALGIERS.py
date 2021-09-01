@@ -2,12 +2,17 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+
 from sklearn.metrics import r2_score
+from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import mean_squared_error
+
 import math as math
 from sklearn import svm
+
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
+
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import AdaBoostRegressor
 from sklearn.neural_network import MLPRegressor
@@ -21,7 +26,13 @@ import matplotlib.dates as mdates
 from matplotlib.dates import DateFormatter
 from sklearn.preprocessing import MinMaxScaler
 
-
+from datetime import datetime
+# datetime object containing current date and time
+now = datetime.now()
+# dd/mm/YY H:M:S
+dt_string = now.strftime("%d-%m-%Y-%H-%M-%S")
+#%%
+dt_string="01-09-2021-09-07-35"
 def loadData():
     idx=pd.date_range(start="2019/4/25", end="2021/6/30",freq="1D")
     df=pd.read_csv("algiers-us embassy-air-quality.csv",
@@ -39,10 +50,14 @@ def loadData():
     dfClimatic.sort_values(by='DATE', inplace=True,ascending=True)
     df=df.reindex(idx,fill_value=np.nan)
     dfClimatic=dfClimatic.reindex(idx,fill_value=np.nan)
+
+    #df[' pm25'].interpolate(method='nearest', inplace=True)
+
     imputer = KNNImputer(n_neighbors=8, weights="uniform")
     imputer.fit(df)
     cleanedX=imputer.transform(df)
     df[' pm25']=cleanedX
+
     df = pd.concat([df,dfClimatic], axis=1)
     return df
 
@@ -71,7 +86,6 @@ def cleanData(df):
                              'WINDTEMP_MAX_C',
                              'SUNHOUR'],inplace=True)
     df.dropna(inplace=True)
-    df.rename(columns = {' pm25':'y'}, inplace=True)
     return df
 
 def deleteCorrelatedColumns(df,minCorrelationToKeep):
@@ -193,6 +207,17 @@ def trainModels(df):
     r2_score(y_val,ctmodel.predict(X_val)),
     r2_score(y_val,dummy_clf.predict(X_val))])
     
+    models_mae=np.array([
+    mean_absolute_error(y_val,DTC.predict(X_val)),
+    mean_absolute_error(y_val,AdaBoostDT.predict(X_val)),
+    mean_absolute_error(y_val,mlp.predict(X_val)),
+    mean_absolute_error(y_val,rndmForest.predict(X_val)),
+    mean_absolute_error(y_val,xgb.predict(X_val)),
+    mean_absolute_error(y_val,svmModel.predict(X_val)),
+    mean_absolute_error(y_val,LightGBM.predict(X_val)),
+    mean_absolute_error(y_val,ctmodel.predict(X_val)),
+    mean_absolute_error(y_val,dummy_clf.predict(X_val))])
+    
     modelNames=['DecisionTree',
                 'AdaBoost',
                 'MLP',
@@ -202,6 +227,16 @@ def trainModels(df):
                 'LightGBM',
                 'catBoost',
                 'Dummy Classifier']
+    
+    model_collection={'DecisionTree':DTC,
+                'AdaBoost':AdaBoostDT,
+                'MLP':mlp,
+                'RandomForest':rndmForest,
+                'XGB':xgb,
+                'SVM':svmModel,
+                'LightGBM':LightGBM,
+                'catBoost':ctmodel,
+                'Dummy Classifier':dummy_clf}
     
     plt.figure(figsize=(10, 4))
     plt.bar(modelNames, modelsrmse, align='center') # A bar chart
@@ -223,29 +258,56 @@ def trainModels(df):
     print("catBoost: ",  "{:.2f}".format(rmse(y_val,ctmodel.predict(X_val))))
     print("Dummy Classifier :",  "{:.2f}".format(rmse(y_val,dummy_clf.predict(X_val))))
     print("------------------------------------------------------------------")
-    return pd.DataFrame([modelNames,modelsrmse,models_r2])
-#for lag in range(9,21):
-lag=1
-print("lags value is "+str(lag))
-print('Loading data')
-df=loadData()
-print('Cleaning Data removing unused features')
-df=cleanData(df=df)
-y=df.y
-df['PM25_t']=y
-#form a vector with only PM25 peaks of the "window" size days
-y=shiftWeekllyMax(y,window=7)
-#Wat lagged value should be introduced as inputs.
-#df=shifData(df,STEPS=lag)
-y=np.array(y)
-df.drop(columns=['y'],inplace=True)
-X=df[0:y.shape[0]]
-y_val=y[680:X.shape[0]]
-X_val=X[680:X.shape[0]]
-y_train=y[0:680]
-X_train=X[0:680]
-performance=trainModels(df)
-performance.to_csv(str(lag)+"RES.csv",sep=';')
+    return pd.DataFrame([modelNames,modelsrmse,models_r2,models_mae]),model_collection
+
+def get_builtIn_features_importance(modelnameStr):
+    tt=np.vstack([df.columns,model_collection[modelnameStr].feature_importances_])
+    return pd.DataFrame(tt.T)
+
+
+for lag in range(28,31):
+    #lag=3
+    print("lags value is "+str(lag))
+    print('Loading data')
+    df=loadData()
+    print('Cleaning Data removing unused features')
+    #df.drop(columns=["TOTAL_SNOW_MM"],inplace=True)
+    #df['OPINION'] =df['OPINION'].astype('category')
+    #df['OPINION']=df['OPINION'].cat.codes
+    df=cleanData(df=df)
+    df.rename(columns = {' pm25':'y'}, inplace=True)
+    y=df.y
+    df['PM25_t']=y
+    #form a vector with only PM25 peaks of the "window" size days
+    y=shiftWeekllyMax(y,window=7)
+    #Wat lagged value should be introduced as inputs.
+    df=shifData(df,STEPS=lag)
+    y=np.array(y)
+    df.drop(columns=['y'],inplace=True)
+    X=df[0:y.shape[0]]
+    y_val=y[500:600]
+    X_val=X[500:600]
+    y_train=y[0:500]
+    X_train=X[0:500]
+    performance,model_collection=trainModels(df)
+    performance['lag']=lag
+    if lag==1:
+        performance.to_csv("ALL_Metrics"+dt_string+".csv",sep=';',mode='w')
+    else:
+        performance.to_csv("ALL_Metrics"+dt_string+".csv",sep=';',mode='a')
+    
+    def save_y_hatForAllModels(model_collection):
+        res=pd.DataFrame()
+        res['y_truth']=y_val
+        for cle, model in model_collection.items():
+            y_hat=model.predict(X_val)
+            res[cle]=y_hat
+        res.to_csv("y_hat_"+str(lag)+".csv",sep=';')
+    
+    save_y_hatForAllModels(model_collection)
+    df_featuresImportance=get_builtIn_features_importance('RandomForest')
+    df_featuresImportance.to_csv(str(lag)+"FIMP.csv",sep=';')
+#%%
 # model = RandomForestRegressor()
 # param_search = {'max_depth' : [3, 5,8, 10,16,50,60,80,100]}
 # tscv = TimeSeriesSplit(n_splits=3)
@@ -253,14 +315,14 @@ performance.to_csv(str(lag)+"RES.csv",sep=';')
 #                          param_grid=param_search,verbose=4)
 # gsearch.fit(X,y)
 #%%
-y_pred=gsearch.predict(X_val)
-plt.plot(y_val)
-plt.plot(y_pred)
-print(rmse(y_val,y_pred))
-print(r2_score(y_val,y_pred))
+#y_pred=gsearch.predict(X_val)
+#plt.plot(y_val)
+#plt.plot(y_pred)
+#print(rmse(y_val,y_pred))
+#print(r2_score(y_val,y_pred))
 #%%
-plt.plot(y_val)
-plt.plot(y_pred)
+#plt.plot(y_val)
+#plt.plot(y_pred)
 #%%
 plt.plot(df.PM25_t.resample("15D").max())
 plt.plot(df.MAX_TEMPERATURE_C.resample("15D").max())
@@ -304,7 +366,25 @@ fig = plt.figure(figsize=(12,8))
 ax = fig.add_subplot(111)
 gdp_decomp[["trend"]].plot(ax=ax, fontsize=16);
 legend = ax.get_legend()
-legend.prop.set_size(20);
-
-
+legend.prop.set_size(20)
+#%%
+from genetic_selection import GeneticSelectionCV
+estimator = DecisionTreeRegressor()
+selector = GeneticSelectionCV(estimator,
+                              cv=5,
+                              verbose=1,
+                              scoring="accuracy",
+                              max_features=5,
+                              n_population=50,
+                              crossover_proba=0.5,
+                              mutation_proba=0.2,
+                              n_generations=10,
+                              crossover_independent_proba=0.5,
+                              mutation_independent_proba=0.05,
+                              tournament_size=3,
+                              n_gen_no_change=10,
+                              caching=True,
+                              n_jobs=-1)
+selector = selector.fit(X, y[:723])
+print(selector.support_)
 
